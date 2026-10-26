@@ -1,2 +1,2 @@
-# Dsc_HypoTest
+# DataScience_StatX
 DataScience Group Project
