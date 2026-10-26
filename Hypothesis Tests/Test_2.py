@@ -7,7 +7,7 @@ import pandas as pd
 
 
 CSV_PATH = Path(__file__).with_name("confirmation.csv")
-MONTH_END_COL = "is_last5"
+DATE_COL = "DisbursalDate"
 SCORE_COL = "PERFORM_CNS.SCORE"
 LOW_SCORE_CUTOFF = 600  # Low score is defined as a genuine score below 600.
 ALPHA = 0.05
@@ -20,19 +20,18 @@ def normal_cdf(value: float) -> float:
 
 
 def main() -> None:
-    df = pd.read_csv(CSV_PATH, usecols=[MONTH_END_COL, SCORE_COL])
-    df = df.dropna(subset=[MONTH_END_COL, SCORE_COL])
-
-    if not set(df[MONTH_END_COL].unique()).issubset({0, 1}):
-        raise ValueError(f"{MONTH_END_COL} must contain only 0/1 values.")
+    df = pd.read_csv(CSV_PATH, usecols=[DATE_COL, SCORE_COL])
+    dates = pd.to_datetime(df[DATE_COL], format="%d-%m-%y", errors="coerce")
+    df["is_month_end"] = (dates.dt.days_in_month - dates.dt.day) < 5
+    df = df.dropna(subset=["is_month_end", SCORE_COL])
 
     # Score 0 encodes no bureau record in the raw dataset, not a genuinely
     # low score. Exclude it and compare only borrowers with a genuine score.
     df = df[df[SCORE_COL] >= 300].copy()
     df["low_score"] = (df[SCORE_COL] < LOW_SCORE_CUTOFF).astype(int)
 
-    month_end = df[df[MONTH_END_COL] == 1]["low_score"]
-    other = df[df[MONTH_END_COL] == 0]["low_score"]
+    month_end = df[df["is_month_end"]]["low_score"]
+    other = df[~df["is_month_end"]]["low_score"]
     n1, n2 = len(month_end), len(other)
     if not n1 or not n2:
         raise ValueError("Both groups must contain borrowers with genuine scores.")

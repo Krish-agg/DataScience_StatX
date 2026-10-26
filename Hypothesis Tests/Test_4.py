@@ -7,7 +7,7 @@ import pandas as pd
 
 
 CSV_PATH = Path(__file__).with_name("confirmation.csv")
-MONTH_END_COL = "is_last5"
+DATE_COL = "DisbursalDate"
 NO_HISTORY_COL = "PERFORM_CNS.SCORE.DESCRIPTION_no_history"
 ALPHA = 0.05
 PRACTICAL_GAP = 0.02  # 2 percentage points
@@ -19,17 +19,19 @@ def normal_cdf(value: float) -> float:
 
 
 def main() -> None:
-    df = pd.read_csv(CSV_PATH, usecols=[MONTH_END_COL, NO_HISTORY_COL])
-    df = df.dropna(subset=[MONTH_END_COL, NO_HISTORY_COL])
+    df = pd.read_csv(CSV_PATH, usecols=[DATE_COL, NO_HISTORY_COL])
+    dates = pd.to_datetime(df[DATE_COL], format="%d-%m-%y", errors="coerce")
+    df["is_month_end"] = (dates.dt.days_in_month - dates.dt.day) < 5
+    df = df.dropna(subset=["is_month_end", NO_HISTORY_COL])
 
     # Ensure the flags represent the expected binary indicators.
-    for column in (MONTH_END_COL, NO_HISTORY_COL):
+    for column in ("is_month_end", NO_HISTORY_COL):
         values = set(df[column].unique())
         if not values.issubset({0, 1, 0.0, 1.0, False, True}):
             raise ValueError(f"{column} must contain only 0/1 values; found {values}")
 
-    month_end = df[df[MONTH_END_COL] == 1][NO_HISTORY_COL]
-    other = df[df[MONTH_END_COL] == 0][NO_HISTORY_COL]
+    month_end = df[df["is_month_end"]][NO_HISTORY_COL]
+    other = df[~df["is_month_end"]][NO_HISTORY_COL]
     n1, n2 = len(month_end), len(other)
     if not n1 or not n2:
         raise ValueError("Both month-end and other-loan groups must be non-empty.")
