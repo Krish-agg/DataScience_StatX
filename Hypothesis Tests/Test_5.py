@@ -1,56 +1,71 @@
-import numpy as np
+"""Run the planned one-sided two-proportion z-test for hypothesis T8."""
+
+from math import erf, sqrt
+from pathlib import Path
+
 import pandas as pd
-from scipy import stats
 
+
+CSV_PATH = Path(__file__).with_name("confirmation.csv")
+DATE_COL = "DisbursalDate"
+NO_HISTORY_COL = "PERFORM_CNS.SCORE.DESCRIPTION_no_history"
 ALPHA = 0.05
-MIN_R = -0.3
-
-df = pd.read_csv("confirmation.csv", usecols=["DisbursalDate", "loan_default"])
-date = pd.to_datetime(df["DisbursalDate"], format="%d-%m-%y")
-
-# x = days before month-end (0 = last day of that month)
-df["days_to_end"] = date.dt.days_in_month - date.dt.day
-
-# Keep x = 0..29 (x = 30 exists only in 31-day months)
-dropped = (df["days_to_end"] > 29).sum()
-df = df[df["days_to_end"] <= 29]
-
-# One point per day: y = default rate of loans disbursed that day
-daily = (df.groupby("days_to_end")["loan_default"]
-           .agg(loans="size", defaults="sum", rate="mean")
-           .sort_index())
-
-x = daily.index.to_numpy(dtype=float)
-y = daily["rate"].to_numpy() * 100         
-n = len(x)
-dof = n - 2
+PRACTICAL_GAP = 0.02  # 2 percentage points
 
 
-dx, dy = x - x.mean(), y - y.mean()
-r = (dx * dy).sum() / np.sqrt((dx**2).sum() * (dy**2).sum())
-
-# t = r * sqrt(n-2) / sqrt(1-r^2)
-t = r * np.sqrt(dof) / np.sqrt(1 - r**2)
-t_crit = stats.t.ppf(ALPHA, dof)             
-p = stats.t.cdf(t, dof)                       
-
-z, se = np.arctanh(r), 1 / np.sqrt(n - 3)
-ci = np.tanh([z - 1.96 * se, z + 1.96 * se])
+def normal_cdf(value: float) -> float:
+    """Standard normal cumulative distribution function."""
+    return 0.5 * (1.0 + erf(value / sqrt(2.0)))
 
 
-slope = -(dx * dy).sum() / (dx**2).sum()
+def main() -> None:
+    df = pd.read_csv(CSV_PATH, usecols=[DATE_COL, NO_HISTORY_COL])
+    dates = pd.to_datetime(df[DATE_COL], format="%d-%m-%y", errors="coerce")
+    df["is_month_end"] = (dates.dt.days_in_month - dates.dt.day) < 5
+    df = df.dropna(subset=["is_month_end", NO_HISTORY_COL])
 
-print(f"Rows dropped (x = 30)      : {dropped:,}")
-print(f"Loans used                 : {daily['loans'].sum():,}")
-print(f"Days (n)                   : {n}")
-print(f"r                          : {r:.4f}")
-print(f"95% CI for rho             : [{ci[0]:.3f}, {ci[1]:.3f}]")
-print(f"t (d.f. = {dof})            : {t:.3f}")
-print(f"Critical t (one-sided)     : {t_crit:.3f}")
-print(f"p-value (one-sided)        : {p:.3e}")
-print(f"Slope                      : {slope:+.4f} pp per day closer to month-end")
-print("Decision                   :", "reject H0" if t < t_crit else "fail to reject H0")
-print("Meets r <= -0.3?           :", r <= MIN_R)
+    # Ensure the flags represent the expected binary indicators.
+    for column in ("is_month_end", NO_HISTORY_COL):
+        values = set(df[column].unique())
+        if not values.issubset({0, 1, 0.0, 1.0, False, True}):
+            raise ValueError(f"{column} must contain only 0/1 values; found {values}")
 
-print("\nDaily table:")
-print(daily.assign(rate=lambda d: (d.rate * 100).round(2)).to_string())
+    month_end = df[df["is_month_end"]][NO_HISTORY_COL]
+    other = df[~df["is_month_end"]][NO_HISTORY_COL]
+    n1, n2 = len(month_end), len(other)
+    if not n1 or not n2:
+        raise ValueError("Both month-end and other-loan groups must be non-empty.")
+
+    x1, x2 = int(month_end.sum()), int(other.sum())
+    p1, p2 = x1 / n1, x2 / n2
+    difference = p1 - p2
+
+    # H0: p1 <= p2; H1: p1 > p2. Under the boundary of H0, use the
+    # pooled estimate in the standard error.
+    pooled = (x1 + x2) / (n1 + n2)
+    pooled_se = sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
+    z_stat = difference / pooled_se
+    p_value = 1 - normal_cdf(z_stat)
+
+    # Two-sided 95% Wald confidence interval for the difference, using
+    # the unpooled standard error as specified in the project plan.
+    ci_se = sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
+    ci_low = difference - 1.96 * ci_se
+    ci_high = difference + 1.96 * ci_se
+
+    print("T8: No-credit-history share among month-end vs other loans")
+    print(f"Data: {CSV_PATH.name}")
+    print(f"Month-end loans: {x1:,}/{n1:,} = {p1:.4%}")
+    print(f"Other loans:     {x2:,}/{n2:,} = {p2:.4%}")
+    print(f"Difference (month-end - other): {difference:.4%} ({difference * 100:.2f} percentage points)")
+    print(f"95% CI for difference: [{ci_low:.4%}, {ci_high:.4%}]")
+    print(f"One-sided pooled z statistic: {z_stat:.4f}")
+    print(f"One-sided p-value: {p_value:.6g}")
+    print(f"Significance level: alpha = {ALPHA:.2f}")
+    print("Decision:", "Reject H0" if p_value < ALPHA else "Fail to reject H0")
+    print(f"Practical threshold (>= {PRACTICAL_GAP * 100:.1f} pp):",
+          "Met" if difference >= PRACTICAL_GAP else "Not met")
+
+
+if __name__ == "__main__":
+    main()
