@@ -43,11 +43,11 @@ se1 = var1/n1
 se2 = var2/n2
 df = ((se1+se2)**2)/((se1**2/(n1-1))+(se2**2/(n2-1)))
 
-t_conf = stats.t.ppf(1-alpha/2,df)
-margin_of_error = t_conf*np.sqrt(se1 + se2)
+t_crit_oneside = stats.t.ppf(1-alpha,df)
+margin_of_error = t_crit_oneside*np.sqrt(se1 + se2)
 ci_start = mean1 - mean2 - margin_of_error
 ci_end = mean1 - mean2 + margin_of_error
 
 print(f"Estimate (Difference of the Means): {mean1 - mean2:.4f}")
-print(f"Degrees of Freedom: {df:.4f}")
+print(f"Critical Value: {t_crit_oneside:.4f}")
 print(f"95% Confidence Interval: [{ci_start:.4f}, {ci_end:.4f}]")
