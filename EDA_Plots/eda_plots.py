@@ -1,14 +1,15 @@
 """
 06_eda_plots.py - EDA figures F1-F5 on the exploration set.
 
-Input : dataset-train-LT-encoded.csv
-Output: eda_plots/F1 ... F5 (.png)
+Input : ../dataset-train-LT-encoded.csv
+Output: ../exploration.csv, ../confirmation.csv (same columns as the input)
+        eda_plots/F1 ... F5 (.png)
 
-Rebuilds the same exploration/confirmation split as 04_eda.py
-(30/70, stratified on loan_default x is_last5, seed 42) in memory.
-It does not overwrite splits/.
+Splits the data 30/70 into exploration/confirmation, stratified on
+loan_default x is_last5 (seed 42). is_last5 is only kept in memory
+and is not written to the CSVs.
 
-Run: python3 06_eda_plots.py
+Run: python3 eda_plots.py
 """
 import os
 import numpy as np
@@ -21,8 +22,12 @@ from sklearn.model_selection import train_test_split
 
 SEED = 42
 EXPLORE_FRAC = 0.30
-IN_FILE = "dataset-train-LT-encoded.csv"
-OUT_DIR = "eda_plots"
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+IN_FILE = os.path.join(ROOT, "dataset-train-LT-encoded.csv")
+EXPLORE_FILE = os.path.join(ROOT, "exploration.csv")
+CONFIRM_FILE = os.path.join(ROOT, "confirmation.csv")
+OUT_DIR = os.path.join(HERE, "eda_plots")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---- colours and style ----
@@ -37,9 +42,9 @@ plt.rcParams.update({
 })
 
 def save(fig, name):
-    fig.savefig(f"{OUT_DIR}/{name}.png")
+    fig.savefig(os.path.join(OUT_DIR, f"{name}.png"))
     plt.close(fig)
-    print(f"saved {OUT_DIR}/{name}.png")
+    print(f"saved eda_plots/{name}.png")
 
 def label_bars(ax, bars, values, fmt="{:.1f}%", pad=0.4):
     for b, v in zip(bars, values):
@@ -48,13 +53,24 @@ def label_bars(ax, bars, values, fmt="{:.1f}%", pad=0.4):
 
 # ---------------------------------------------------------------- load + split
 df = pd.read_csv(IN_FILE, low_memory=False)
-d = pd.to_datetime(df["DisbursalDate"], format="%d-%m-%y")
-df["dte"] = d.dt.days_in_month - d.dt.day          # days before month end (0 = last day)
-df["is_last5"] = (df["dte"] < 5).astype(int)
 
-strata = df["loan_default"].astype(str) + "_" + df["is_last5"].astype(str)
-e, _ = train_test_split(df, train_size=EXPLORE_FRAC, stratify=strata, random_state=SEED)
-e = e.copy()
+# Helper columns live in separate Series so they never end up in the saved CSVs.
+d = pd.to_datetime(df["DisbursalDate"], format="%d-%m-%y")
+dte = d.dt.days_in_month - d.dt.day                # days before month end (0 = last day)
+is_last5 = (dte < 5).astype(int)
+
+strata = df["loan_default"].astype(str) + "_" + is_last5.astype(str)
+explore_df, confirm_df = train_test_split(
+    df, train_size=EXPLORE_FRAC, stratify=strata, random_state=SEED)
+
+explore_df.to_csv(EXPLORE_FILE, index=False)
+confirm_df.to_csv(CONFIRM_FILE, index=False)
+print(f"saved exploration.csv ({len(explore_df):,} rows) and "
+      f"confirmation.csv ({len(confirm_df):,} rows)")
+
+# Working copy for the plots; extra columns added below stay in memory only.
+e = explore_df.copy()
+e["dte"] = dte.loc[e.index]
 overall = 100 * e["loan_default"].mean()
 print(f"Exploration set: {len(e):,} loans (seed {SEED}), default rate {overall:.2f}%")
 
