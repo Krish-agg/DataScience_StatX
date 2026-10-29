@@ -28,8 +28,9 @@ DataScience_StatX/
 ├── Hypothesis Tests/
 │   ├── Test_1.py
 │   ├── Test_2.py
-│   ├── Test_3.ipynb
+│   ├── Test_3.py
 │   └── Test_4.py
+│   └── Test_5.py
 │
 └── README.md
 ```
